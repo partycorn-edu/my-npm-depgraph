@@ -1,0 +1,4 @@
+package = "@babel/code-frame"
+repository = "https://registry.npmjs.org"
+version = "7.22.13"
+ascii_tree = true

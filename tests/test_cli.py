@@ -1,18 +1,36 @@
-"""Тесты командной строки."""
+"""Тесты командной строки с заглушкой реестра."""
 
 import io
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 from depgraph.cli import main
+from depgraph.errors import RepoError
 
-OK_TOML = (
-    'package = "express"\n'
+TOML = (
+    'package = "app"\n'
     'repository = "https://registry.npmjs.org"\n'
-    'version = "4.18.2"\n'
+    'version = "1.0.0"\n'
 )
+
+
+class StubRegistry:
+    """Заглушка реестра с фиксированными зависимостями."""
+
+    deps = {"zeta": "^2.0.0", "alpha": "~1.1.0"}
+    error = None
+
+    def __init__(self, url):
+        """Принять адрес реестра и ничего не делать."""
+
+    def dependencies(self, name, version):
+        """Вернуть заготовленные зависимости или выбросить ошибку."""
+        if self.error:
+            raise self.error
+        return self.deps
 
 
 def run_cli(args):
@@ -23,6 +41,7 @@ def run_cli(args):
     return code, out.getvalue(), err.getvalue()
 
 
+@mock.patch("depgraph.cli.NpmRegistry", StubRegistry)
 class CliTests(unittest.TestCase):
     """Проверки вывода и кодов выхода."""
 
@@ -34,27 +53,53 @@ class CliTests(unittest.TestCase):
         path.write_text(text, encoding="utf-8")
         return str(path)
 
-    def test_prints_all_parameters(self):
-        """Все параметры выводятся парами ключ-значение."""
-        code, out, _ = run_cli(["-c", self.make_config(OK_TOML)])
+    def test_tree_output(self):
+        """Зависимости выводятся ASCII-деревом в алфавитном порядке."""
+        code, out, _ = run_cli(["-c", self.make_config(TOML)])
         self.assertEqual(code, 0)
-        for key in ("package", "repository", "test_mode", "version"):
-            self.assertIn(key, out)
-        self.assertIn("express", out)
+        self.assertIn("|-- alpha (~1.1.0)", out)
+        self.assertIn("`-- zeta (^2.0.0)", out)
         self.assertNotIn("\x1b", out)
 
-    def test_error_has_no_traceback(self):
-        """Ошибка конфигурации даёт код 2 и короткое сообщение."""
-        code, out, err = run_cli(["-c", "missing.toml"])
-        self.assertEqual(code, 2)
-        self.assertEqual(out, "")
-        self.assertIn("Ошибка конфигурации", err)
+    def test_table_output(self):
+        """При ascii_tree = false выводится таблица."""
+        config = self.make_config(TOML + "ascii_tree = false\n")
+        _, out, _ = run_cli(["-c", config])
+        self.assertIn("Диапазон версий", out)
+        self.assertNotIn("|-- ", out)
+
+    def test_no_dependencies(self):
+        """Пустой список зависимостей даёт предупреждение."""
+        with mock.patch.object(StubRegistry, "deps", {}):
+            code, out, _ = run_cli(["-c", self.make_config(TOML)])
+        self.assertEqual(code, 0)
+        self.assertIn("нет прямых зависимостей", out)
+
+    def test_repo_error(self):
+        """Ошибка репозитория даёт код 3 и сообщение в stderr."""
+        with mock.patch.object(StubRegistry, "error", RepoError("сбой")):
+            code, out, err = run_cli(["-c", self.make_config(TOML)])
+        self.assertEqual((code, out), (3, ""))
+        self.assertIn("Ошибка репозитория: сбой", err)
         self.assertNotIn("Traceback", err)
 
-    def test_no_color_flag(self):
-        """Флаг --no-color не оставляет управляющих символов."""
-        _, out, _ = run_cli(["--no-color", "-c", self.make_config(OK_TOML)])
-        self.assertNotIn("\x1b", out)
+    def test_config_error(self):
+        """Ошибка конфигурации даёт код 2."""
+        code, _, err = run_cli(["-c", "missing.toml"])
+        self.assertEqual(code, 2)
+        self.assertIn("Ошибка конфигурации", err)
+
+    def test_test_mode_not_ready(self):
+        """Тестовый режим на этом этапе сообщает о недоступности."""
+        repo = Path(self.make_config("A:\n")).parent / "repo.txt"
+        repo.write_text("A:\n", encoding="utf-8")
+        text = (
+            f'package = "A"\nrepository = "{repo}"\n'
+            'version = "1"\ntest_mode = true\n'
+        )
+        code, _, err = run_cli(["-c", self.make_config(text)])
+        self.assertEqual(code, 3)
+        self.assertIn("этапе 3", err)
 
 
 if __name__ == "__main__":

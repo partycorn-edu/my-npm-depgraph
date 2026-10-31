@@ -42,14 +42,6 @@ class ConfigTests(unittest.TestCase):
         self.assertFalse(config.test_mode)
         self.assertTrue(config.ascii_tree)
 
-    def test_as_pairs_order(self):
-        """Пары ключ-значение идут в порядке из задания."""
-        keys = [k for k, _ in load_config(self.write(NPM_TOML)).as_pairs()]
-        self.assertEqual(
-            keys,
-            ["package", "repository", "test_mode", "version", "ascii_tree"],
-        )
-
     def test_scoped_package(self):
         """Имена со скоупом разрешены."""
         text = NPM_TOML.replace("express", "@babel/core")

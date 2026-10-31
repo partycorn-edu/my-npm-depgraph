@@ -41,16 +41,6 @@ class Config:
     version: str
     ascii_tree: bool
 
-    def as_pairs(self):
-        """Вернуть параметры как пары ключ-значение в порядке задания."""
-        return [
-            (KEY_PACKAGE, self.package),
-            (KEY_REPOSITORY, self.repository),
-            (KEY_TEST_MODE, self.test_mode),
-            (KEY_VERSION, self.version),
-            (KEY_ASCII_TREE, self.ascii_tree),
-        ]
-
 
 def read_raw(path):
     """Прочитать TOML-файл и превратить сбои чтения в ConfigError."""

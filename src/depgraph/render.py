@@ -11,6 +11,8 @@ STYLE_OK = "bold green"
 STYLE_WARN = "bold yellow"
 STYLE_ERROR = "bold red"
 STYLE_KEY = "cyan"
+TREE_MID = "|-- "
+TREE_LAST = "`-- "
 
 
 def make_console(plain, stderr=False):
@@ -25,13 +27,6 @@ def make_console(plain, stderr=False):
 def box_style(console):
     """Выбрать рамки таблиц: ASCII без цвета, скруглённые в цвете."""
     return box.ASCII if console.color_system is None else box.ROUNDED
-
-
-def format_value(value):
-    """Показать значение параметра в синтаксисе TOML."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    return str(value)
 
 
 def print_title(console, text):
@@ -56,18 +51,42 @@ def print_error(console, title, message):
     console.print(line)
 
 
-def print_config(console, config, source):
-    """Напечатать параметры конфигурации таблицей ключ-значение."""
-    print_title(console, "depgraph: граф зависимостей npm")
-    console.print(Text(f"Конфигурация: {source}", style=STYLE_DIM))
-    table = Table(
-        title="Параметры",
-        title_style=STYLE_TITLE,
-        box=box_style(console),
-    )
-    table.add_column("Ключ", style=STYLE_KEY, no_wrap=True)
-    table.add_column("Значение", overflow="fold")
-    for key, value in config.as_pairs():
-        table.add_row(Text(key), Text(format_value(value)))
+def tree_text(prefix, name, spec):
+    """Собрать строку дерева: ветка, имя пакета и диапазон версий."""
+    line = Text(prefix, style=STYLE_DIM)
+    line.append(name, style=STYLE_KEY)
+    line.append(f" ({spec})", style=STYLE_WARN)
+    return line
+
+
+def print_dependency_tree(console, root, deps):
+    """Напечатать прямые зависимости ASCII-деревом."""
+    console.print(Text(root, style="bold"))
+    names = sorted(deps)
+    for name in names:
+        prefix = TREE_LAST if name == names[-1] else TREE_MID
+        console.print(tree_text(prefix, name, deps[name]))
+
+
+def print_dependency_table(console, deps):
+    """Напечатать прямые зависимости таблицей."""
+    table = Table(box=box_style(console))
+    table.add_column("Пакет", style=STYLE_KEY)
+    table.add_column("Диапазон версий")
+    for name in sorted(deps):
+        table.add_row(Text(name), Text(deps[name]))
     console.print(table)
-    print_ok(console, "OK: конфигурация корректна")
+
+
+def print_dependencies(console, name, version, deps, as_tree):
+    """Напечатать прямые зависимости пакета в выбранном виде."""
+    root = f"{name}@{version}"
+    print_title(console, f"depgraph: прямые зависимости {root}")
+    if not deps:
+        print_warning(console, "У этой версии нет прямых зависимостей")
+        return
+    if as_tree:
+        print_dependency_tree(console, root, deps)
+    else:
+        print_dependency_table(console, deps)
+    print_ok(console, f"Всего прямых зависимостей: {len(deps)}")

@@ -1,0 +1,4 @@
+package = "no-such-package-zzq9"
+repository = "https://registry.npmjs.org"
+version = "1.0.0"
+ascii_tree = true

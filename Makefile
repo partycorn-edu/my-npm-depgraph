@@ -14,6 +14,8 @@ run:
 
 demo:
 	sh scripts/demo_errors.sh
+	sh scripts/demo_npm.sh
+	sh scripts/demo_npm.sh examples/npm_errors
 
 clean:
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +

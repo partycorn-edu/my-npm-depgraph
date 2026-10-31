@@ -5,8 +5,9 @@ import os
 import sys
 
 from .config import load_config
-from .errors import DepgraphError
-from .render import make_console, print_config, print_error
+from .errors import DepgraphError, RepoError
+from .registry import NpmRegistry
+from .render import make_console, print_dependencies, print_error
 
 DEFAULT_CONFIG = "config.toml"
 NO_COLOR_ENV = "NO_COLOR"
@@ -50,6 +51,18 @@ def is_plain(stream, no_color_flag):
     return not stream.isatty()
 
 
+def run(config, console):
+    """Получить и напечатать прямые зависимости заданной версии пакета."""
+    if config.test_mode:
+        raise RepoError("тестовый режим появится на этапе 3")
+    registry = NpmRegistry(config.repository)
+    with console.status("Запрос к реестру npm..."):
+        deps = registry.dependencies(config.package, config.version)
+    print_dependencies(
+        console, config.package, config.version, deps, config.ascii_tree
+    )
+
+
 def main(argv=None):
     """Запустить приложение и вернуть код выхода."""
     args = build_parser().parse_args(argv)
@@ -57,7 +70,7 @@ def main(argv=None):
     errors = make_console(is_plain(sys.stderr, args.no_color), stderr=True)
     try:
         config = load_config(args.config)
-        print_config(console, config, args.config)
+        run(config, console)
     except DepgraphError as exc:
         print_error(errors, exc.title, str(exc))
         return exc.exit_code
