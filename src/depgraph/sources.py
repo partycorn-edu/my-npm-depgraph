@@ -37,6 +37,15 @@ class NpmSource:
         deps = self.registry.dependencies(name, version)
         return [self.child(node, dep, deps[dep]) for dep in sorted(deps)]
 
+    def prepare(self, level):
+        """Параллельно загрузить данные узлов уровня и их зависимостей."""
+        pairs = [split_node(node) for node in level]
+        self.registry.prefetch([name for name, _ in pairs])
+        names = set()
+        for name, version in pairs:
+            names.update(self.registry.dependencies(name, version))
+        self.registry.prefetch(names)
+
     def child(self, node, dep, spec):
         """Разрешить диапазон одной зависимости с понятным контекстом."""
         try:
@@ -97,6 +106,9 @@ class FileRepository:
         except (OSError, UnicodeDecodeError) as exc:
             raise RepoError(f"не удалось прочитать {path}: {exc}") from None
         return cls(parse_repository(text))
+
+    def prepare(self, level):
+        """Ничего не загружает, данные уже в памяти."""
 
     def root(self, name):
         """Проверить, что корневой пакет описан в репозитории."""

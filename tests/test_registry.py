@@ -1,10 +1,14 @@
 """Тесты клиента реестра: заглушки и локальный HTTP-сервер."""
 
+import gzip
 import json
+import os
 import threading
 import unittest
+from unittest import mock
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+from depgraph import registry
 from depgraph.errors import NotFoundError, RepoError
 from depgraph.registry import NpmRegistry, http_get_json
 
@@ -49,6 +53,13 @@ class RegistryTests(unittest.TestCase):
         """Отсутствие поля dependencies даёт пустой словарь."""
         self.assertEqual(self.registry.dependencies("pkg", "1.1.0"), {})
 
+    def test_prefetch(self):
+        """Prefetch загружает недостающее один раз и заполняет кэш."""
+        self.registry.prefetch(["pkg", "pkg"])
+        self.registry.prefetch(["pkg"])
+        self.assertEqual(len(self.fetch.calls), 1)
+        self.assertIn("pkg", self.registry.cache)
+
     def test_cache(self):
         """Описание пакета запрашивается один раз."""
         self.registry.dependencies("pkg", "1.0.0")
@@ -91,9 +102,12 @@ class Handler(BaseHTTPRequestHandler):
             "/text": (200, b"not json"),
             "/list": (200, b"[1, 2]"),
             "/err": (500, b"oops"),
+            "/gz": (200, gzip.compress(b'{"zipped": true}')),
         }
         code, body = routes.get(self.path, (404, b"{}"))
         self.send_response(code)
+        if self.path == "/gz":
+            self.send_header("Content-Encoding", "gzip")
         self.end_headers()
         self.wfile.write(body)
 
@@ -124,6 +138,10 @@ class HttpTests(unittest.TestCase):
         """Корректный JSON возвращается как словарь."""
         self.assertEqual(http_get_json(self.base + "/ok"), {"a": 1})
 
+    def test_gzip(self):
+        """Ответ со сжатием gzip распаковывается."""
+        self.assertEqual(http_get_json(self.base + "/gz"), {"zipped": True})
+
     def test_not_found(self):
         """Ответ 404 превращается в NotFoundError."""
         with self.assertRaises(NotFoundError):
@@ -140,11 +158,32 @@ class HttpTests(unittest.TestCase):
             with self.assertRaises(RepoError):
                 http_get_json(self.base + path)
 
+    def test_dead_proxy_falls_back_to_direct(self):
+        """Если прокси отказывает, запрос повторяется напрямую."""
+        env = {"HTTP_PROXY": "http://127.0.0.1:9"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            with mock.patch.object(registry, "DEAD_PROXIES", set()) as dead:
+                data = http_get_json(self.base + "/ok")
+                again = http_get_json(self.base + "/ok")
+        self.assertEqual((data, again), ({"a": 1}, {"a": 1}))
+        self.assertEqual(dead, {"127.0.0.1:9"})
+
+    def test_proxy_and_direct_both_fail(self):
+        """Если не работает и прямое соединение, это RepoError."""
+        env = {"HTTP_PROXY": "http://127.0.0.1:9"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            with mock.patch.object(registry, "DEAD_PROXIES", set()) as dead:
+                with self.assertRaises(RepoError) as ctx:
+                    http_get_json("http://127.0.0.1:9/x", timeout=2)
+        self.assertEqual(dead, set())
+        self.assertIn("задан прокси 127.0.0.1:9", str(ctx.exception))
+
     def test_connection_refused(self):
         """Недоступный порт даёт RepoError, а не исключение сокета."""
         with self.assertRaises(RepoError) as ctx:
             http_get_json("http://127.0.0.1:9/x", timeout=2)
         self.assertIn("зеркало", str(ctx.exception))
+        self.assertIn("127.0.0.1 разрешается в: 127.0.0.1", str(ctx.exception))
 
 
 if __name__ == "__main__":

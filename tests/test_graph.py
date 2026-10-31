@@ -14,6 +14,9 @@ class DictSource:
         self.table = table
         self.calls = []
 
+    def prepare(self, level):
+        """Подготовка не нужна."""
+
     def children(self, node):
         """Вернуть потомков узла."""
         self.calls.append(node)
@@ -37,11 +40,11 @@ class GraphTests(unittest.TestCase):
         self.assertEqual(graph.edge_count(), 4)
 
     def test_progress_callback(self):
-        """Обработчик прогресса вызывается для каждого узла один раз."""
+        """Обработчик прогресса вызывается для каждого уровня."""
         seen = []
         source = DictSource({"A": ["B"], "B": ["C"]})
-        build_graph(source, "A", lambda node, done: seen.append((node, done)))
-        self.assertEqual(seen, [("A", 0), ("B", 1), ("C", 2)])
+        build_graph(source, "A", lambda level, done: seen.append((level, done)))
+        self.assertEqual(seen, [(["A"], 0), (["B"], 1), (["C"], 2)])
 
     def test_single_node(self):
         """Пакет без зависимостей даёт граф из одного узла."""

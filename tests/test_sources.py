@@ -101,6 +101,16 @@ class NpmSourceTests(unittest.TestCase):
         )
         self.assertEqual(len(find_cycles(graph)), 1)
 
+    def test_prepare_loads_everything_up_front(self):
+        """После prepare обход графа не делает новых запросов."""
+        fetch = FakeFetch(PACKUMENTS)
+        source = NpmSource(NpmRegistry("http://r", fetch))
+        source.prepare(["app@1.0.0"])
+        calls = len(fetch.calls)
+        self.assertEqual(calls, 2)
+        source.children("app@1.0.0")
+        self.assertEqual(len(fetch.calls), calls)
+
     def test_resolve_variants(self):
         """Точная версия, dist-tag и диапазон разрешаются."""
         registry = NpmRegistry("http://r", FakeFetch(PACKUMENTS))
