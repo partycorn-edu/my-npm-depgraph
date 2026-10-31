@@ -142,8 +142,9 @@ class HttpTests(unittest.TestCase):
 
     def test_connection_refused(self):
         """Недоступный порт даёт RepoError, а не исключение сокета."""
-        with self.assertRaises(RepoError):
+        with self.assertRaises(RepoError) as ctx:
             http_get_json("http://127.0.0.1:9/x", timeout=2)
+        self.assertIn("зеркало", str(ctx.exception))
 
 
 if __name__ == "__main__":

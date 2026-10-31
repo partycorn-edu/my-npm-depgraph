@@ -36,6 +36,13 @@ class GraphTests(unittest.TestCase):
         self.assertEqual(sorted(source.calls), ["A", "B", "C", "D"])
         self.assertEqual(graph.edge_count(), 4)
 
+    def test_progress_callback(self):
+        """Обработчик прогресса вызывается для каждого узла один раз."""
+        seen = []
+        source = DictSource({"A": ["B"], "B": ["C"]})
+        build_graph(source, "A", lambda node, done: seen.append((node, done)))
+        self.assertEqual(seen, [("A", 0), ("B", 1), ("C", 2)])
+
     def test_single_node(self):
         """Пакет без зависимостей даёт граф из одного узла."""
         graph, _ = build({})

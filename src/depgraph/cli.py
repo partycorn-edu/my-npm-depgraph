@@ -53,11 +53,24 @@ def is_plain(stream, no_color_flag):
     return not stream.isatty()
 
 
+def progress_reporter(status):
+    """Создать обработчик, который обновляет строку статуса."""
+
+    def report(node, done):
+        """Показать, для какого пакета сейчас запрашиваются данные."""
+        status.update(
+            f"Построение графа: запрашиваю зависимости {node} "
+            f"(обработано пакетов: {done})"
+        )
+
+    return report
+
+
 def run(config, console):
     """Построить граф зависимостей и напечатать результат."""
     source, root = open_source(config)
-    with console.status("Построение графа зависимостей..."):
-        graph = build_graph(source, root)
+    with console.status("Построение графа зависимостей...") as status:
+        graph = build_graph(source, root, progress_reporter(status))
     print_graph(
         console,
         graph,

@@ -15,25 +15,34 @@ class Graph:
         return sum(len(children) for children in self.edges.values())
 
 
-def expand_level(source, level, edges, seen):
+def skip_node(node, done):
+    """Обработчик прогресса по умолчанию, ничего не делает."""
+
+
+def expand_level(source, level, edges, seen, on_node):
     """Обработать один уровень BFS и рекурсивно перейти к следующему."""
     if not level:
         return
     next_level = []
     for node in level:
+        on_node(node, len(edges))
         children = source.children(node)
         edges[node] = children
         for child in children:
             if child not in seen:
                 seen.add(child)
                 next_level.append(child)
-    expand_level(source, next_level, edges, seen)
+    expand_level(source, next_level, edges, seen, on_node)
 
 
-def build_graph(source, root):
-    """Построить граф от корня. Уже встреченные узлы не раскрываются."""
+def build_graph(source, root, on_node=None):
+    """Построить граф от корня. Уже встреченные узлы не раскрываются.
+
+    Функция on_node(узел, число_обработанных) вызывается перед запросом
+    данных об очередном узле и нужна для показа прогресса.
+    """
     edges = {}
-    expand_level(source, [root], edges, {root})
+    expand_level(source, [root], edges, {root}, on_node or skip_node)
     return Graph(root, edges)
 
 

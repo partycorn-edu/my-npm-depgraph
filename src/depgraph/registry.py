@@ -14,6 +14,11 @@ USER_AGENT = "depgraph-study/1.0"
 TIMEOUT_SECONDS = 20
 HTTP_NOT_FOUND = 404
 HINT_COUNT = 3
+NETWORK_HINT = (
+    "Проверьте сеть. Если реестр недоступен с вашего адреса, укажите в "
+    "repository зеркало (например https://registry.npmmirror.com) или "
+    "задайте прокси переменной HTTPS_PROXY."
+)
 
 
 def parse_json(body, url):
@@ -44,10 +49,12 @@ def http_get_json(url, timeout=TIMEOUT_SECONDS):
         ) from None
     except URLError as exc:
         raise RepoError(
-            f"репозиторий недоступен ({exc.reason}): {url}"
+            f"репозиторий недоступен ({exc.reason}): {url}. {NETWORK_HINT}"
         ) from None
     except (OSError, HTTPException) as exc:
-        raise RepoError(f"сбой сети ({exc}): {url}") from None
+        raise RepoError(
+            f"сбой сети ({exc}): {url}. {NETWORK_HINT}"
+        ) from None
     return parse_json(body, url)
 
 
