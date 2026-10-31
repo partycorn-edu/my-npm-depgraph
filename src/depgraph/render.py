@@ -5,14 +5,14 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from .tree import MARK_CYCLE, MARK_SEEN, tree_lines
+
 STYLE_TITLE = "bold cyan"
 STYLE_DIM = "dim"
 STYLE_OK = "bold green"
 STYLE_WARN = "bold yellow"
 STYLE_ERROR = "bold red"
 STYLE_KEY = "cyan"
-TREE_MID = "|-- "
-TREE_LAST = "`-- "
 
 
 def make_console(plain, stderr=False):
@@ -51,42 +51,55 @@ def print_error(console, title, message):
     console.print(line)
 
 
-def tree_text(prefix, name, spec):
-    """Собрать строку дерева: ветка, имя пакета и диапазон версий."""
-    line = Text(prefix, style=STYLE_DIM)
-    line.append(name, style=STYLE_KEY)
-    line.append(f" ({spec})", style=STYLE_WARN)
-    return line
+def tree_line_text(line):
+    """Собрать строку дерева с подсветкой узла и пометок."""
+    text = Text(line.prefix, style=STYLE_DIM)
+    text.append(line.node, style=STYLE_KEY)
+    if line.mark == MARK_CYCLE:
+        text.append(" (цикл)", style=STYLE_ERROR)
+    elif line.mark == MARK_SEEN:
+        text.append(" (повтор, поддерево выше)", style=STYLE_WARN)
+    return text
 
 
-def print_dependency_tree(console, root, deps):
-    """Напечатать прямые зависимости ASCII-деревом."""
-    console.print(Text(root, style="bold"))
-    names = sorted(deps)
-    for name in names:
-        prefix = TREE_LAST if name == names[-1] else TREE_MID
-        console.print(tree_text(prefix, name, deps[name]))
+def print_tree(console, graph):
+    """Напечатать граф ASCII-деревом."""
+    console.print(Text(graph.root, style="bold"))
+    for line in tree_lines(graph):
+        console.print(tree_line_text(line))
 
 
-def print_dependency_table(console, deps):
-    """Напечатать прямые зависимости таблицей."""
+def print_adjacency(console, graph):
+    """Напечатать граф таблицей: пакет и его прямые зависимости."""
     table = Table(box=box_style(console))
     table.add_column("Пакет", style=STYLE_KEY)
-    table.add_column("Диапазон версий")
-    for name in sorted(deps):
-        table.add_row(Text(name), Text(deps[name]))
+    table.add_column("Зависит от", overflow="fold")
+    for node, children in graph.edges.items():
+        table.add_row(Text(node), Text(", ".join(children) or "-"))
     console.print(table)
 
 
-def print_dependencies(console, name, version, deps, as_tree):
-    """Напечатать прямые зависимости пакета в выбранном виде."""
-    root = f"{name}@{version}"
-    print_title(console, f"depgraph: прямые зависимости {root}")
-    if not deps:
-        print_warning(console, "У этой версии нет прямых зависимостей")
+def print_cycles(console, cycles):
+    """Напечатать найденные циклические зависимости."""
+    if not cycles:
         return
+    print_warning(console, f"Циклические зависимости: {len(cycles)}")
+    for cycle in cycles:
+        console.print(Text("  " + " -> ".join(cycle), style="red"))
+
+
+def print_graph(console, graph, cycles, undefined, as_tree):
+    """Напечатать граф, сводку, циклы и предупреждения."""
+    print_title(console, f"depgraph: граф зависимостей {graph.root}")
     if as_tree:
-        print_dependency_tree(console, root, deps)
+        print_tree(console, graph)
     else:
-        print_dependency_table(console, deps)
-    print_ok(console, f"Всего прямых зависимостей: {len(deps)}")
+        print_adjacency(console, graph)
+    print_cycles(console, cycles)
+    if undefined:
+        names = ", ".join(undefined)
+        print_warning(console, f"Не описаны, считаются листьями: {names}")
+    print_ok(
+        console,
+        f"OK: пакетов {len(graph.edges)}, связей {graph.edge_count()}",
+    )

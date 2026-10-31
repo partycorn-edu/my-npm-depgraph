@@ -1,0 +1,4 @@
+package = "A"
+repository = "examples/repo_errors/no_colon.txt"
+test_mode = true
+version = "1.0.0"

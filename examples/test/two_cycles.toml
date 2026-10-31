@@ -1,0 +1,5 @@
+package = "A"
+repository = "examples/repos/two_cycles.txt"
+test_mode = true
+version = "1.0.0"
+ascii_tree = true

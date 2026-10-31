@@ -5,13 +5,15 @@ import os
 import sys
 
 from .config import load_config
-from .errors import DepgraphError, RepoError
-from .registry import NpmRegistry
-from .render import make_console, print_dependencies, print_error
+from .errors import DepgraphError
+from .graph import build_graph, find_cycles
+from .render import make_console, print_error, print_graph
+from .sources import open_source
 
 DEFAULT_CONFIG = "config.toml"
 NO_COLOR_ENV = "NO_COLOR"
 EXIT_OK = 0
+EXIT_TOO_DEEP = 4
 EXIT_INTERRUPTED = 130
 
 EPILOG = (
@@ -52,14 +54,16 @@ def is_plain(stream, no_color_flag):
 
 
 def run(config, console):
-    """Получить и напечатать прямые зависимости заданной версии пакета."""
-    if config.test_mode:
-        raise RepoError("тестовый режим появится на этапе 3")
-    registry = NpmRegistry(config.repository)
-    with console.status("Запрос к реестру npm..."):
-        deps = registry.dependencies(config.package, config.version)
-    print_dependencies(
-        console, config.package, config.version, deps, config.ascii_tree
+    """Построить граф зависимостей и напечатать результат."""
+    source, root = open_source(config)
+    with console.status("Построение графа зависимостей..."):
+        graph = build_graph(source, root)
+    print_graph(
+        console,
+        graph,
+        find_cycles(graph),
+        source.undefined(graph.edges),
+        config.ascii_tree,
     )
 
 
@@ -74,6 +78,9 @@ def main(argv=None):
     except DepgraphError as exc:
         print_error(errors, exc.title, str(exc))
         return exc.exit_code
+    except RecursionError:
+        print_error(errors, "Ошибка", "граф слишком глубокий для обхода")
+        return EXIT_TOO_DEEP
     except KeyboardInterrupt:
         print_error(errors, "Прервано", "работа остановлена пользователем")
         return EXIT_INTERRUPTED

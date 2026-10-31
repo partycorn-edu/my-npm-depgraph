@@ -1,0 +1,4 @@
+package = "A"
+repository = "examples/repo_errors/bad_name.txt"
+test_mode = true
+version = "1.0.0"

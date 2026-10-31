@@ -1,4 +1,4 @@
-"""Тесты командной строки с заглушкой реестра."""
+"""Тесты командной строки: тестовый режим и npm на заглушке."""
 
 import io
 import tempfile
@@ -7,30 +7,23 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from depgraph.cli import main
-from depgraph.errors import RepoError
+from depgraph.cli import EXIT_TOO_DEEP, main
+from depgraph.registry import NpmRegistry
+from test_registry import FakeFetch
 
-TOML = (
+NPM_TOML = (
     'package = "app"\n'
-    'repository = "https://registry.npmjs.org"\n'
+    'repository = "http://r"\n'
     'version = "1.0.0"\n'
 )
-
-
-class StubRegistry:
-    """Заглушка реестра с фиксированными зависимостями."""
-
-    deps = {"zeta": "^2.0.0", "alpha": "~1.1.0"}
-    error = None
-
-    def __init__(self, url):
-        """Принять адрес реестра и ничего не делать."""
-
-    def dependencies(self, name, version):
-        """Вернуть заготовленные зависимости или выбросить ошибку."""
-        if self.error:
-            raise self.error
-        return self.deps
+PACKUMENTS = {
+    "http://r/app": {
+        "versions": {"1.0.0": {"dependencies": {"lib": "^1.0.0"}}}
+    },
+    "http://r/lib": {
+        "versions": {"1.0.0": {}, "1.2.0": {"dependencies": {"app": "*"}}}
+    },
+}
 
 
 def run_cli(args):
@@ -41,46 +34,75 @@ def run_cli(args):
     return code, out.getvalue(), err.getvalue()
 
 
-@mock.patch("depgraph.cli.NpmRegistry", StubRegistry)
+def fake_registry(url):
+    """Создать реестр, который читает данные из заглушки."""
+    return NpmRegistry(url, FakeFetch(PACKUMENTS))
+
+
 class CliTests(unittest.TestCase):
     """Проверки вывода и кодов выхода."""
 
-    def make_config(self, text):
-        """Создать временную конфигурацию и вернуть путь."""
+    def setUp(self):
+        """Создать временный каталог."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
-        path = Path(tmp.name) / "config.toml"
+        self.dir = Path(tmp.name)
+
+    def config(self, repo_text, extra="", package="A"):
+        """Создать тестовый репозиторий и конфигурацию, вернуть путь."""
+        repo = self.dir / "repo.txt"
+        repo.write_text(repo_text, encoding="utf-8")
+        text = (
+            f'package = "{package}"\nrepository = "{repo}"\n'
+            f'version = "1"\ntest_mode = true\n{extra}'
+        )
+        path = self.dir / "config.toml"
         path.write_text(text, encoding="utf-8")
         return str(path)
 
-    def test_tree_output(self):
-        """Зависимости выводятся ASCII-деревом в алфавитном порядке."""
-        code, out, _ = run_cli(["-c", self.make_config(TOML)])
+    def test_tree_in_test_mode(self):
+        """Тестовый режим печатает дерево и сводку."""
+        code, out, _ = run_cli(["-c", self.config("A: B C\nB: C\nC:\n")])
         self.assertEqual(code, 0)
-        self.assertIn("|-- alpha (~1.1.0)", out)
-        self.assertIn("`-- zeta (^2.0.0)", out)
+        self.assertIn("|-- B\n|   `-- C\n`-- C\n", out)
+        self.assertIn("пакетов 3, связей 3", out)
         self.assertNotIn("\x1b", out)
 
-    def test_table_output(self):
-        """При ascii_tree = false выводится таблица."""
-        config = self.make_config(TOML + "ascii_tree = false\n")
+    def test_table_in_test_mode(self):
+        """При ascii_tree = false печатается таблица смежности."""
+        config = self.config("A: B\nB:\n", "ascii_tree = false\n")
         _, out, _ = run_cli(["-c", config])
-        self.assertIn("Диапазон версий", out)
-        self.assertNotIn("|-- ", out)
+        self.assertIn("Зависит от", out)
+        self.assertNotIn("`-- ", out)
 
-    def test_no_dependencies(self):
-        """Пустой список зависимостей даёт предупреждение."""
-        with mock.patch.object(StubRegistry, "deps", {}):
-            code, out, _ = run_cli(["-c", self.make_config(TOML)])
+    def test_cycle_report(self):
+        """Цикл помечается в дереве и перечисляется отдельно."""
+        _, out, _ = run_cli(["-c", self.config("A: B\nB: A\n")])
+        self.assertIn("A (цикл)", out)
+        self.assertIn("A -> B -> A", out)
+
+    def test_undefined_warning(self):
+        """Неописанный пакет даёт предупреждение."""
+        code, out, _ = run_cli(["-c", self.config("A: X\n")])
         self.assertEqual(code, 0)
-        self.assertIn("нет прямых зависимостей", out)
+        self.assertIn("Не описаны, считаются листьями: X", out)
 
-    def test_repo_error(self):
-        """Ошибка репозитория даёт код 3 и сообщение в stderr."""
-        with mock.patch.object(StubRegistry, "error", RepoError("сбой")):
-            code, out, err = run_cli(["-c", self.make_config(TOML)])
-        self.assertEqual((code, out), (3, ""))
-        self.assertIn("Ошибка репозитория: сбой", err)
+    def test_repo_errors(self):
+        """Ошибки тестового репозитория дают код 3 без трассировки."""
+        for text, package in (("A B\n", "A"), ("A:\n", "Z")):
+            with self.subTest(text=text, package=package):
+                code, out, err = run_cli(["-c", self.config(text, "", package)])
+                self.assertEqual((code, out), (3, ""))
+                self.assertIn("Ошибка репозитория", err)
+                self.assertNotIn("Traceback", err)
+
+    def test_too_deep_graph(self):
+        """Слишком глубокий граф даёт код 4 без трассировки."""
+        size = 1500
+        lines = [f"N{'A' * i}: N{'A' * (i + 1)}" for i in range(1, size)]
+        config = self.config("\n".join(lines) + "\n", package="NA")
+        code, _, err = run_cli(["-c", config])
+        self.assertEqual(code, EXIT_TOO_DEEP)
         self.assertNotIn("Traceback", err)
 
     def test_config_error(self):
@@ -89,17 +111,24 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertIn("Ошибка конфигурации", err)
 
-    def test_test_mode_not_ready(self):
-        """Тестовый режим на этом этапе сообщает о недоступности."""
-        repo = Path(self.make_config("A:\n")).parent / "repo.txt"
-        repo.write_text("A:\n", encoding="utf-8")
-        text = (
-            f'package = "A"\nrepository = "{repo}"\n'
-            'version = "1"\ntest_mode = true\n'
-        )
-        code, _, err = run_cli(["-c", self.make_config(text)])
+    @mock.patch("depgraph.sources.NpmRegistry", fake_registry)
+    def test_npm_mode(self):
+        """Режим npm разрешает диапазоны и находит цикл."""
+        path = self.dir / "npm.toml"
+        path.write_text(NPM_TOML, encoding="utf-8")
+        code, out, _ = run_cli(["-c", str(path)])
+        self.assertEqual(code, 0)
+        self.assertIn("`-- lib@1.2.0\n    `-- app@1.0.0 (цикл)", out)
+        self.assertIn("app@1.0.0 -> lib@1.2.0 -> app@1.0.0", out)
+
+    @mock.patch("depgraph.sources.NpmRegistry", fake_registry)
+    def test_npm_unknown_package(self):
+        """Неизвестный корневой пакет даёт код 3."""
+        path = self.dir / "npm.toml"
+        path.write_text(NPM_TOML.replace("app", "nope"), encoding="utf-8")
+        code, _, err = run_cli(["-c", str(path)])
         self.assertEqual(code, 3)
-        self.assertIn("этапе 3", err)
+        self.assertIn("не найден", err)
 
 
 if __name__ == "__main__":

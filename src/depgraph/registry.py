@@ -7,6 +7,7 @@ from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from .errors import NotFoundError, RepoError
+from .semver import max_satisfying
 
 ACCEPT_HEADER = "application/vnd.npm.install-v1+json"
 USER_AGENT = "depgraph-study/1.0"
@@ -96,3 +97,21 @@ class NpmRegistry:
         if not isinstance(deps, dict):
             raise RepoError(f"неверное поле dependencies у {name}@{version}")
         return {str(key): str(value) for key, value in deps.items()}
+
+    def resolve(self, name, spec):
+        """Выбрать версию пакета под диапазон, точную версию или dist-tag."""
+        versions = self.versions(name)
+        if spec in versions:
+            return spec
+        tags = self.packument(name).get("dist-tags")
+        if isinstance(tags, dict) and tags.get(spec) in versions:
+            return tags[spec]
+        try:
+            found = max_satisfying(list(versions), spec)
+        except ValueError:
+            raise RepoError(
+                f"не поддерживается спецификация '{spec}' пакета '{name}'"
+            ) from None
+        if found is None:
+            raise RepoError(f"у пакета '{name}' нет версии под '{spec}'")
+        return found
