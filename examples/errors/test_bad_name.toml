@@ -1,0 +1,4 @@
+package = "app"
+repository = "examples/repos/basic.txt"
+version = "1.0.0"
+test_mode = true
