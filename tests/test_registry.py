@@ -39,7 +39,7 @@ class FakeFetch:
 class RegistryTests(unittest.TestCase):
     """Проверки NpmRegistry на заглушке."""
 
-    def setUp(self):
+    def setup(self):
         """Создать реестр с одной заглушкой пакета."""
         self.fetch = FakeFetch({"http://r/pkg": PACKUMENT})
         self.registry = NpmRegistry("http://r/", self.fetch)
@@ -122,14 +122,14 @@ class HttpTests(unittest.TestCase):
     """Проверки http_get_json на локальном сервере."""
 
     @classmethod
-    def setUpClass(cls):
+    def setup_class(cls):
         """Запустить сервер на свободном порту."""
         cls.server = HTTPServer(("127.0.0.1", 0), Handler)
         cls.base = f"http://127.0.0.1:{cls.server.server_address[1]}"
         threading.Thread(target=cls.server.serve_forever, daemon=True).start()
 
     @classmethod
-    def tearDownClass(cls):
+    def teardown_class(cls):
         """Остановить сервер."""
         cls.server.shutdown()
         cls.server.server_close()

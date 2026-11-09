@@ -42,7 +42,7 @@ def fake_registry(url):
 class CliTests(unittest.TestCase):
     """Проверки вывода и кодов выхода."""
 
-    def setUp(self):
+    def setup(self):
         """Создать временный каталог."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)

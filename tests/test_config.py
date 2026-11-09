@@ -17,7 +17,7 @@ NPM_TOML = (
 class ConfigTests(unittest.TestCase):
     """Проверки load_config на корректных и неверных файлах."""
 
-    def setUp(self):
+    def setup(self):
         """Создать временный каталог для файлов конфигурации."""
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
